@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>2.5D 關卡地圖邊界編輯器 - 全格式相容版</title>
+    <style>
+        * { box-sizing: border-box; user-select: none; }
+        body {
+            margin: 0; padding: 0; background-color: #1a1a1a; color: #eee;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+        }
+        #toolbar {
+            background-color: #252525; padding: 8px 16px; display: flex; align-items: center;
+            gap: 12px; border-bottom: 2px solid #333; z-index: 10; flex-wrap: wrap;
+        }
+        .btn-group { display: flex; gap: 4px; align-items: center; }
+        button, select {
+            background-color: #383838; color: #fff; border: 1px solid #555;
+            padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;
+            display: inline-flex; align-items: center; gap: 6px; transition: 0.15s;
+        }
+        button:hover { background-color: #4a4a4a; border-color: #777; }
+        button.active {
+            background-color: #00bcd4; color: #000; border-color: #00e5ff;
+            box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+        }
+        button.danger { background-color: #d32f2f; }
+        button.danger:hover { background-color: #f44336; }
+        button.success { background-color: #2e7d32; }
+        button.success:hover { background-color: #388e3c; }
+
+        .status-badge {
+            padding: 4px 10px; border-radius: 4px; font-size: 12px;
+            background-color: #111; border: 1px solid #444; font-family: monospace;
+        }
+
+        #canvasContainer {
+            flex: 1; position: relative; overflow: hidden; background-color: #111; cursor: default;
+        }
+        #canvasContainer.panning { cursor: grab; }
+        #canvasContainer.dragging-point { cursor: grabbing; }
+
+        #codeDrawer {
+            background-color: #202020; border-top: 2px solid #333; padding: 10px 16px;
+            display: flex; gap: 12px; height: 180px;
+        }
+        #codeOutput {
+            flex: 1; background-color: #111; color: #69f0ae; border: 1px solid #444;
+            padding: 10px; font-family: "Consolas", "Fira Code", monospace; font-size: 13px;
+            line-height: 1.45; resize: none; border-radius: 4px; white-space: pre;
+        }
+        .drawer-actions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+        .help-tip { font-size: 12px; color: #ffd54f; margin-left: auto; display: flex; gap: 14px; }
+        .help-tip span { display: inline-flex; align-items: center; gap: 4px; }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        <label>底圖：</label>
+        <select id="mapSelect" onchange="changeMapBackground()">
+            <option value="maze.png">地圖 1 (maze.png)</option>
+            <option value="maze2.png">地圖 2 (maze2.png)</option>
+            <option value="maze3.png" selected>地圖 3 (maze3.png)</option>
+        </select>
+
+        <button onclick="document.getElementById('localImgUpload').click()">📁 選擇本機圖片</button>
+        <input type="file" id="localImgUpload" accept="image/*" style="display: none;" onchange="loadLocalImage(event)">
+
+        <div class="btn-group">
+            <button id="modeSelect" class="active" onclick="setToolMode('select')">👆 選取/編輯 (V)</button>
+            <button id="modePoly" onclick="setToolMode('poly')">📐 多邊形 (P)</button>
+            <button id="modeRect" onclick="setToolMode('rect')">■ 矩形 (R)</button>
+        </div>
+
+        <label style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+            <input type="checkbox" id="snapGrid"> 網格吸附 (10px)
+        </label>
+
+        <div class="btn-group">
+            <button onclick="setZoom(1.0)">100%</button>
+            <button onclick="setZoom(1.5)">150%</button>
+            <button onclick="setZoom(2.0)">200%</button>
+            <button onclick="resetView()">適應</button>
+        </div>
+
+        <div class="btn-group">
+            <button onclick="undo()">↩ 復原 (Ctrl+Z)</button>
+            <button class="danger" onclick="deleteSelected()">🗑️ 刪除選取 (Del)</button>
+            <button class="danger" onclick="clearAll()">💥 清空</button>
+            <button class="success" onclick="copyCode()">📋 複製代碼</button>
+        </div>
+
+        <span class="status-badge" id="stats">已標記：0 個</span>
+        <span class="status-badge" id="mouseCoord">X: 0, Y: 0</span>
+
+        <div class="help-tip">
+            <span>🖱️ <b>右鍵/Backspace</b>：撤銷上一個點</span>
+            <span>➕ <b>Shift + 點線段</b>：新增頂點</span>
+            <span>⌨️ <b>Enter</b>：閉合</span>
+        </div>
+    </div>
+
+    <div id="canvasContainer">
+        <canvas id="editorCanvas"></canvas>
+    </div>
+
+    <div id="codeDrawer">
+        <textarea id="codeOutput" spellcheck="false" placeholder="JSON 或 JS 陣列代碼..."></textarea>
+        <div class="drawer-actions">
+            <button class="success" onclick="copyCode()">📋 複製至剪貼簿</button>
+            <button onclick="importCode()">📥 貼上代碼 匯入畫布</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('editorCanvas');
+        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('canvasContainer');
+        const mapSelect = document.getElementById('mapSelect');
+        const mouseCoordText = document.getElementById('mouseCoord');
+        const statsText = document.getElementById('stats');
+        const codeOutput = document.getElementById('codeOutput');
+        const snapGridCheck = document.getElementById('snapGrid');
+
+        const MAP_WIDTH = 1920;
+        const MAP_HEIGHT = 1080;
+
+        let bgImage = new Image();
+        let walls = [];
+        let undoStack = [];
+
+        let zoom = 1.0;
+        let panX = 0, panY = 0;
+        let isPanning = false;
+        let startPanX = 0, startPanY = 0;
+        let spacePressed = false;
+        let shiftPressed = false;
+
+        let toolMode = 'select';
+        let drawingPoints = [];
+        let rectStartPoint = null;
+
+        let selectedWall = null;
+        let draggingVertexIndex = -1;
+        let draggingRectCorner = -1;
+        let isDraggingShape = false;
+        let shapeDragOffset = { x: 0, y: 0 };
+        let hoveredEdgeInfo = null;
+
+        function saveState() {
+            undoStack.push(JSON.parse(JSON.stringify(walls)));
+            if (undoStack.length > 30) undoStack.shift();
+        }
+
+        function undo() {
+            if (toolMode === 'poly' && drawingPoints.length > 0) {
+                drawingPoints.pop();
+                render();
+                return;
+            }
+            if (undoStack.length > 0) {
+                walls = undoStack.pop();
+                selectedWall = null;
+                updateCodeOutput();
+                render();
+            }
+        }
+
+        function setToolMode(mode) {
+            toolMode = mode;
+            document.getElementById('modeSelect').classList.toggle('active', mode === 'select');
+            document.getElementById('modePoly').classList.toggle('active', mode === 'poly');
+            document.getElementById('modeRect').classList.toggle('active', mode === 'rect');
+            if (mode !== 'poly') drawingPoints = [];
+            if (mode !== 'rect') rectStartPoint = null;
+            render();
+        }
+
+        function changeMapBackground() {
+            bgImage = new Image();
+            bgImage.src = mapSelect.value;
+            bgImage.onload = () => render();
+        }
+
+        function loadLocalImage(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                bgImage = new Image();
+                bgImage.src = e.target.result;
+                bgImage.onload = () => {
+                    render();
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function resizeCanvas() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            render();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+        function screenToWorld(sx, sy) {
+            let wx = (sx - panX) / zoom;
+            let wy = (sy - panY) / zoom;
+            if (snapGridCheck.checked) {
+                wx = Math.round(wx / 10) * 10;
+                wy = Math.round(wy / 10) * 10;
+            }
+            return { x: Math.round(wx), y: Math.round(wy) };
+        }
+
+        function worldToScreen(wx, wy) {
+            return { x: wx * zoom + panX, y: wy * zoom + panY };
+        }
+
+        function pointInPolygon(px, py, points) {
+            let inside = false;
+            for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+                const xi = points[i].x, yi = points[i].y;
+                const xj = points[j].x, yj = points[j].y;
+                const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        function distToSegmentWithPoint(px, py, x1, y1, x2, y2) {
+            const dx = x2 - x1, dy = y2 - y1;
+            const lenSq = dx * dx + dy * dy;
+            if (lenSq === 0) return { dist: Math.hypot(px - x1, py - y1), projX: x1, projY: y1 };
+            let t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+            const projX = Math.round(x1 + t * dx);
+            const projY = Math.round(y1 + t * dy);
+            return { dist: Math.hypot(px - projX, py - projY), projX, projY };
+        }
+
+        function findHit(wx, wy) {
+            const HIT_RADIUS = 12 / zoom;
+
+            if (selectedWall) {
+                if (selectedWall.points) {
+                    for (let i = 0; i < selectedWall.points.length; i++) {
+                        if (Math.hypot(wx - selectedWall.points[i].x, wy - selectedWall.points[i].y) <= HIT_RADIUS) {
+                            return { type: 'vertex', wall: selectedWall, index: i };
+                        }
+                    }
+                    let closestEdge = null;
+                    let minEdgeDist = Infinity;
+                    for (let i = 0; i < selectedWall.points.length; i++) {
+                        let next = (i + 1) % selectedWall.points.length;
+                        let info = distToSegmentWithPoint(wx, wy, selectedWall.points[i].x, selectedWall.points[i].y, selectedWall.points[next].x, selectedWall.points[next].y);
+                        if (info.dist <= HIT_RADIUS && info.dist < minEdgeDist) {
+                            minEdgeDist = info.dist;
+                            closestEdge = { type: 'edge', wall: selectedWall, insertIndex: next, at: { x: info.projX, y: info.projY } };
+                        }
+                    }
+                    if (closestEdge) return closestEdge;
+                } else if (selectedWall.width) {
+                    const corners = [
+                        { x: selectedWall.x, y: selectedWall.y },
+                        { x: selectedWall.x + selectedWall.width, y: selectedWall.y },
+                        { x: selectedWall.x + selectedWall.width, y: selectedWall.y + selectedWall.height },
+                        { x: selectedWall.x, y: selectedWall.y + selectedWall.height }
+                    ];
+                    for (let i = 0; i < 4; i++) {
+                        if (Math.hypot(wx - corners[i].x, wy - corners[i].y) <= HIT_RADIUS) {
+                            return { type: 'rectCorner', wall: selectedWall, corner: i };
+                        }
+                    }
+                }
+            }
+
+            for (let i = walls.length - 1; i >= 0; i--) {
+                const w = walls[i];
+                if (w.points && pointInPolygon(wx, wy, w.points)) {
+                    return { type: 'shape', wall: w };
+                } else if (w.width) {
+                    if (wx >= w.x && wx <= w.x + w.width && wy >= w.y && wy <= w.y + w.height) {
+                        return { type: 'shape', wall: w };
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        function insertVertexAtEdge(edgeInfo) {
+            if (!edgeInfo || !edgeInfo.wall || !edgeInfo.wall.points) return;
+            saveState();
+            edgeInfo.wall.points.splice(edgeInfo.insertIndex, 0, { x: edgeInfo.at.x, y: edgeInfo.at.y });
+            selectedWall = edgeInfo.wall;
+            updateCodeOutput();
+            render();
+        }
+
+        container.addEventListener('mousedown', (e) => {
+            if (e.button === 1 || spacePressed) {
+                isPanning = true;
+                startPanX = e.clientX - panX;
+                startPanY = e.clientY - panY;
+                container.classList.add('panning');
+                return;
+            }
+
+            const rect = canvas.getBoundingClientRect();
+            const wPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+
+            if (e.button === 0) {
+                if (toolMode === 'select') {
+                    const hit = findHit(wPos.x, wPos.y);
+
+                    if (hit && hit.type === 'edge' && (e.shiftKey || shiftPressed)) {
+                        insertVertexAtEdge(hit);
+                        return;
+                    }
+
+                    if (hit) {
+                        if (hit.type === 'vertex') {
+                            saveState();
+                            selectedWall = hit.wall;
+                            draggingVertexIndex = hit.index;
+                            container.classList.add('dragging-point');
+                        } else if (hit.type === 'rectCorner') {
+                            saveState();
+                            selectedWall = hit.wall;
+                            draggingRectCorner = hit.corner;
+                        } else if (hit.type === 'shape') {
+                            saveState();
+                            selectedWall = hit.wall;
+                            isDraggingShape = true;
+                            shapeDragOffset = { x: wPos.x, y: wPos.y };
+                        } else if (hit.type === 'edge') {
+                            selectedWall = hit.wall;
+                        }
+                    } else {
+                        selectedWall = null;
+                    }
+                    render();
+                } else if (toolMode === 'poly') {
+                    if (drawingPoints.length >= 3) {
+                        const first = drawingPoints[0];
+                        if (Math.hypot(wPos.x - first.x, wPos.y - first.y) < 14 / zoom) {
+                            finishPolygon();
+                            return;
+                        }
+                    }
+                    drawingPoints.push({ x: wPos.x, y: wPos.y });
+                    render();
+                } else if (toolMode === 'rect') {
+                    rectStartPoint = { x: wPos.x, y: wPos.y };
+                }
+            }
+        });
+
+        container.addEventListener('dblclick', (e) => {
+            if (toolMode !== 'select' || !selectedWall || !selectedWall.points) return;
+            const rect = canvas.getBoundingClientRect();
+            const wPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+            const hit = findHit(wPos.x, wPos.y);
+            if (hit && hit.type === 'edge') {
+                insertVertexAtEdge(hit);
+            }
+        });
+
+        container.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+
+            if (toolMode === 'poly' && drawingPoints.length > 0) {
+                drawingPoints.pop();
+                render();
+                return;
+            }
+
+            if (toolMode === 'select' && selectedWall && selectedWall.points && selectedWall.points.length > 3) {
+                const rect = canvas.getBoundingClientRect();
+                const wPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+                const hit = findHit(wPos.x, wPos.y);
+                if (hit && hit.type === 'vertex' && hit.wall === selectedWall) {
+                    saveState();
+                    selectedWall.points.splice(hit.index, 1);
+                    updateCodeOutput();
+                    render();
+                }
+            }
+        });
+
+        container.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseScreenX = e.clientX - rect.left;
+            const mouseScreenY = e.clientY - rect.top;
+            const wPos = screenToWorld(mouseScreenX, mouseScreenY);
+            mouseCoordText.innerText = `X: ${wPos.x}, Y: ${wPos.y}`;
+
+            if (isPanning) {
+                panX = e.clientX - startPanX;
+                panY = e.clientY - startPanY;
+                render();
+                return;
+            }
+
+            if (toolMode === 'select') {
+                if (draggingVertexIndex !== -1 && selectedWall && selectedWall.points) {
+                    selectedWall.points[draggingVertexIndex].x = wPos.x;
+                    selectedWall.points[draggingVertexIndex].y = wPos.y;
+                    updateCodeOutput();
+                    render();
+                    return;
+                }
+
+                if (draggingRectCorner !== -1 && selectedWall && selectedWall.width) {
+                    if (draggingRectCorner === 0) {
+                        let r = selectedWall.x + selectedWall.width;
+                        let b = selectedWall.y + selectedWall.height;
+                        selectedWall.x = Math.min(wPos.x, r - 10);
+                        selectedWall.y = Math.min(wPos.y, b - 10);
+                        selectedWall.width = r - selectedWall.x;
+                        selectedWall.height = b - selectedWall.y;
+                    } else if (draggingRectCorner === 1) {
+                        let b = selectedWall.y + selectedWall.height;
+                        selectedWall.y = Math.min(wPos.y, b - 10);
+                        selectedWall.width = Math.max(10, wPos.x - selectedWall.x);
+                        selectedWall.height = b - selectedWall.y;
+                    } else if (draggingRectCorner === 2) {
+                        selectedWall.width = Math.max(10, wPos.x - selectedWall.x);
+                        selectedWall.height = Math.max(10, wPos.y - selectedWall.y);
+                    } else if (draggingRectCorner === 3) {
+                        let r = selectedWall.x + selectedWall.width;
+                        selectedWall.x = Math.min(wPos.x, r - 10);
+                        selectedWall.width = r - selectedWall.x;
+                        selectedWall.height = Math.max(10, wPos.y - selectedWall.y);
+                    }
+                    updateCodeOutput();
+                    render();
+                    return;
+                }
+
+                if (isDraggingShape && selectedWall) {
+                    const dx = wPos.x - shapeDragOffset.x;
+                    const dy = wPos.y - shapeDragOffset.y;
+                    if (dx !== 0 || dy !== 0) {
+                        if (selectedWall.points) {
+                            selectedWall.points.forEach(p => { p.x += dx; p.y += dy; });
+                        } else if (selectedWall.width) {
+                            selectedWall.x += dx;
+                            selectedWall.y += dy;
+                        }
+                        shapeDragOffset = { x: wPos.x, y: wPos.y };
+                        updateCodeOutput();
+                        render();
+                    }
+                    return;
+                }
+
+                hoveredEdgeInfo = null;
+                const hit = findHit(wPos.x, wPos.y);
+                if (hit && hit.type === 'edge') {
+                    hoveredEdgeInfo = hit;
+                    render();
+                } else if (hoveredEdgeInfo) {
+                    hoveredEdgeInfo = null;
+                    render();
+                }
+            }
+
+            if (toolMode === 'rect' && rectStartPoint) {
+                render();
+                const sx = Math.min(rectStartPoint.x, wPos.x);
+                const sy = Math.min(rectStartPoint.y, wPos.y);
+                const sw = Math.abs(wPos.x - rectStartPoint.x);
+                const sh = Math.abs(wPos.y - rectStartPoint.y);
+                const sPos = worldToScreen(sx, sy);
+                ctx.fillStyle = 'rgba(0, 229, 255, 0.35)';
+                ctx.strokeStyle = '#00e5ff';
+                ctx.lineWidth = 2;
+                ctx.fillRect(sPos.x, sPos.y, sw * zoom, sh * zoom);
+                ctx.strokeRect(sPos.x, sPos.y, sw * zoom, sh * zoom);
+            }
+
+            if (toolMode === 'poly' && drawingPoints.length > 0) {
+                render();
+                const last = drawingPoints[drawingPoints.length - 1];
+                const p1 = worldToScreen(last.x, last.y);
+                const p2 = worldToScreen(wPos.x, wPos.y);
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.strokeStyle = '#ffeb3b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (isPanning) {
+                isPanning = false;
+                container.classList.remove('panning');
+            }
+
+            if (draggingVertexIndex !== -1 || draggingRectCorner !== -1 || isDraggingShape) {
+                draggingVertexIndex = -1;
+                draggingRectCorner = -1;
+                isDraggingShape = false;
+                container.classList.remove('dragging-point');
+            }
+
+            if (toolMode === 'rect' && rectStartPoint) {
+                const rect = canvas.getBoundingClientRect();
+                const wPos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+                const rx = Math.min(rectStartPoint.x, wPos.x);
+                const ry = Math.min(rectStartPoint.y, wPos.y);
+                const rw = Math.abs(wPos.x - rectStartPoint.x);
+                const rh = Math.abs(wPos.y - rectStartPoint.y);
+
+                if (rw > 15 && rh > 15) {
+                    saveState();
+                    const newRect = { x: rx, y: ry, width: rw, height: rh };
+                    walls.push(newRect);
+                    selectedWall = newRect;
+                    updateCodeOutput();
+                }
+                rectStartPoint = null;
+                render();
+            }
+        });
+
+        function finishPolygon() {
+            if (drawingPoints.length >= 3) {
+                saveState();
+                const newPoly = { points: [...drawingPoints] };
+                walls.push(newPoly);
+                selectedWall = newPoly;
+                drawingPoints = [];
+                updateCodeOutput();
+                render();
+            }
+        }
+
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const prevZoom = zoom;
+            if (e.deltaY < 0) zoom = Math.min(3.0, zoom * 1.15);
+            else zoom = Math.max(0.4, zoom / 1.15);
+
+            panX = mouseX - (mouseX - panX) * (zoom / prevZoom);
+            panY = mouseY - (mouseY - panY) * (zoom / prevZoom);
+            render();
+        }, { passive: false });
+
+        function setZoom(val) {
+            zoom = val;
+            panX = (canvas.width - MAP_WIDTH * zoom) / 2;
+            panY = (canvas.height - MAP_HEIGHT * zoom) / 2;
+            render();
+        }
+
+        function resetView() {
+            zoom = Math.min(canvas.width / MAP_WIDTH, canvas.height / MAP_HEIGHT) * 0.95;
+            panX = (canvas.width - MAP_WIDTH * zoom) / 2;
+            panY = (canvas.height - MAP_HEIGHT * zoom) / 2;
+            render();
+        }
+
+        function deleteSelected() {
+            if (selectedWall) {
+                saveState();
+                walls = walls.filter(w => w !== selectedWall);
+                selectedWall = null;
+                updateCodeOutput();
+                render();
+            }
+        }
+
+        function clearAll() {
+            if (confirm('確定清空所有障礙物標記？')) {
+                saveState();
+                walls = [];
+                selectedWall = null;
+                drawingPoints = [];
+                updateCodeOutput();
+                render();
+            }
+        }
+
+        function formatWallsCode(data) {
+            if (!data || data.length === 0) return '[]';
+            const items = data.map(item => {
+                if (item.points) {
+                    const pointLines = item.points.map(p => `      { "x": ${p.x}, "y": ${p.y} }`).join(',\n');
+                    return `  {\n    "points": [\n${pointLines}\n    ]\n  }`;
+                } else if (item.width !== undefined) {
+                    return `  { "x": ${item.x}, "y": ${item.y}, "width": ${item.width}, "height": ${item.height} }`;
+                }
+                return `  ${JSON.stringify(item)}`;
+            });
+            return `[\n${items.join(',\n')}\n]`;
+        }
+
+        function updateCodeOutput() {
+            statsText.innerText = `已標記：${walls.length} 個`;
+            codeOutput.value = formatWallsCode(walls);
+        }
+
+        function copyCode() {
+            codeOutput.select();
+            navigator.clipboard.writeText(codeOutput.value);
+            alert('📋 代碼已複製到剪貼簿！');
+        }
+
+        // 🌟 雙模相容匯入核心：標準 JSON 與 JavaScript 物件語法皆可解析
+        function importCode() {
+            const rawText = codeOutput.value.trim();
+            if (!rawText) {
+                alert('請先在文字框中貼上代碼！');
+                return;
+            }
+
+            let parsed = null;
+
+            // 1. 優先嘗試標準 JSON 解析
+            try {
+                parsed = JSON.parse(rawText);
+            } catch (errJson) {
+                // 2. 自動嘗試解析不帶雙引號的 JavaScript 物件陣列語法
+                try {
+                    parsed = new Function('return ' + rawText)();
+                } catch (errJs) {
+                    alert('❌ 語法錯誤：請確認貼上的是標準的陣列結構 [ ... ]！');
+                    return;
+                }
+            }
+
+            if (Array.isArray(parsed)) {
+                saveState();
+                walls = parsed;
+                selectedWall = null;
+                updateCodeOutput();
+                render();
+                alert(`✅ 成功匯入 ${walls.length} 個障礙物！`);
+            } else {
+                alert('❌ 匯入失敗：最外層必須是中括號陣列 [ ... ]！');
+            }
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement === codeOutput) return;
+
+            if (e.key === 'Shift') shiftPressed = true;
+            if (e.key === 'Escape') {
+                if (drawingPoints.length > 0) {
+                    drawingPoints = [];
+                    render();
+                    return;
+                }
+            }
+
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (toolMode === 'poly' && drawingPoints.length > 0) {
+                    drawingPoints.pop();
+                    render();
+                    return;
+                }
+                deleteSelected();
+                return;
+            }
+
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+                e.preventDefault();
+                undo();
+                return;
+            }
+
+            if (e.code === 'Space') {
+                spacePressed = true;
+                container.classList.add('panning');
+            }
+            if (e.key === 'v' || e.key === 'V') setToolMode('select');
+            if (e.key === 'p' || e.key === 'P') setToolMode('poly');
+            if (e.key === 'r' || e.key === 'R') setToolMode('rect');
+            if (e.key === 'Enter' && toolMode === 'poly') finishPolygon();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift') shiftPressed = false;
+            if (e.code === 'Space') {
+                spacePressed = false;
+                container.classList.remove('panning');
+            }
+        });
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(zoom, zoom);
+
+            // 1. 底圖
+            if (bgImage.complete && bgImage.naturalWidth !== 0) {
+                ctx.drawImage(bgImage, 0, 0, MAP_WIDTH, MAP_HEIGHT);
+            } else {
+                ctx.fillStyle = '#222';
+                ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+            }
+
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2 / zoom;
+            ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+            // 2. 障礙物列表繪製
+            walls.forEach((w) => {
+                const isSelected = (w === selectedWall);
+
+                ctx.beginPath();
+                if (w.points && w.points.length >= 3) {
+                    ctx.moveTo(w.points[0].x, w.points[0].y);
+                    for (let i = 1; i < w.points.length; i++) ctx.lineTo(w.points[i].x, w.points[i].y);
+                    ctx.closePath();
+                } else if (w.width) {
+                    ctx.rect(w.x, w.y, w.width, w.height);
+                }
+
+                ctx.fillStyle = isSelected ? 'rgba(255, 235, 59, 0.35)' : 'rgba(0, 255, 120, 0.25)';
+                ctx.fill();
+
+                ctx.strokeStyle = isSelected ? '#ffeb3b' : '#00ff77';
+                ctx.lineWidth = (isSelected ? 3 : 1.5) / zoom;
+                ctx.stroke();
+
+                if (isSelected) {
+                    if (w.points) {
+                        w.points.forEach((pt, idx) => {
+                            ctx.beginPath();
+                            ctx.arc(pt.x, pt.y, 6 / zoom, 0, Math.PI * 2);
+                            ctx.fillStyle = '#ff5722';
+                            ctx.fill();
+                            ctx.strokeStyle = '#ffffff';
+                            ctx.lineWidth = 2 / zoom;
+                            ctx.stroke();
+
+                            ctx.fillStyle = '#fff';
+                            ctx.font = `${Math.max(10, 11 / zoom)}px monospace`;
+                            ctx.fillText(idx, pt.x + 8 / zoom, pt.y - 8 / zoom);
+                        });
+                    } else if (w.width) {
+                        const corners = [
+                            { x: w.x, y: w.y },
+                            { x: w.x + w.width, y: w.y },
+                            { x: w.x + w.width, y: w.y + w.height },
+                            { x: w.x, y: w.y + w.height }
+                        ];
+                        corners.forEach(pt => {
+                            ctx.beginPath();
+                            ctx.arc(pt.x, pt.y, 6 / zoom, 0, Math.PI * 2);
+                            ctx.fillStyle = '#00bcd4';
+                            ctx.fill();
+                            ctx.strokeStyle = '#ffffff';
+                            ctx.lineWidth = 2 / zoom;
+                            ctx.stroke();
+                        });
+                    }
+                }
+            });
+
+            if (hoveredEdgeInfo && selectedWall && selectedWall.points) {
+                const at = hoveredEdgeInfo.at;
+                ctx.beginPath();
+                ctx.arc(at.x, at.y, 7 / zoom, 0, Math.PI * 2);
+                ctx.fillStyle = '#00e5ff';
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2 / zoom;
+                ctx.stroke();
+
+                ctx.fillStyle = '#000';
+                ctx.font = `bold ${Math.max(10, 12 / zoom)}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('+', at.x, at.y);
+            }
+
+            // 3. 多邊形繪製中預覽
+            if (drawingPoints.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(drawingPoints[0].x, drawingPoints[0].y);
+                for (let i = 1; i < drawingPoints.length; i++) {
+                    ctx.lineTo(drawingPoints[i].x, drawingPoints[i].y);
+                }
+                ctx.strokeStyle = '#ff9800';
+                ctx.lineWidth = 2 / zoom;
+                ctx.stroke();
+
+                drawingPoints.forEach((p, idx) => {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, (idx === 0 ? 7 : 4) / zoom, 0, Math.PI * 2);
+                    ctx.fillStyle = (idx === 0) ? '#00e676' : '#ff9800';
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            }
+
+            ctx.restore();
+        }
+
+        changeMapBackground();
+        setTimeout(resetView, 100);
+    </script>
+</body>
+</html>

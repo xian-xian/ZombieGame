@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>終極殭屍防線</title>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <style>
+        body { 
+            margin: 0; padding: 0; background-color: #111; color: white; font-family: sans-serif; 
+            display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; 
+        }
+        canvas { 
+            background-color: #222; cursor: default; max-width: 100%; max-height: 100%;
+            aspect-ratio: 16 / 9; box-shadow: 0 0 25px #000;
+        }
+        #info { position: absolute; top: 15px; left: 15px; font-size: 20px; color: #ffeb3b; font-weight: bold; pointer-events: none; }
+        #weaponHud { position: absolute; top: 48px; left: 15px; font-size: 16px; font-weight: bold; pointer-events: none; }
+        #mousePosText { position: absolute; top: 76px; left: 15px; font-size: 13px; color: #ffd700; font-family: monospace; pointer-events: none; }
+        #controls { position: absolute; bottom: 15px; left: 15px; color: #fff; text-shadow: 1px 1px 4px #000; pointer-events: none; }
+        
+        .top-btns {
+            position: absolute; top: 15px; right: 20px; display: flex; gap: 8px; z-index: 10; align-items: center;
+        }
+        .btn-header {
+            padding: 8px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        #modeBtn { background-color: #00bcd4; color: #000; }
+        #modeBtn.debug-active { background-color: #ff9800; color: #000; box-shadow: 0 0 12px #ff9800; }
+        #leaveBtn { background-color: #d9534f; color: white; display: none; }
+        #leaveBtn:hover { background-color: #c9302c; }
+
+        .btn-lvl {
+            background-color: #2a2a2a; color: #ffd700; border: 1.5px solid #555;
+            padding: 6px 12px; border-radius: 5px; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        .btn-lvl:hover { background-color: #3d3d3d; border-color: #ffd700; }
+        .btn-lvl.lvl-active {
+            background-color: #ff9800; color: #000; border-color: #ffd700;
+            box-shadow: 0 0 10px rgba(255, 152, 0, 0.7);
+        }
+
+        #lobbyOverlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 10, 0.95); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+        }
+        #lobbyOverlay h1 { font-size: 48px; color: #ff5252; margin-bottom: 25px; text-shadow: 0 0 15px red; }
+        .lobby-options { margin-bottom: 30px; font-size: 18px; color: #ffd700; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+        .map-grid { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; max-width: 980px; }
+        .map-card {
+            background-color: #252525; border: 2px solid #555; border-radius: 10px;
+            padding: 20px; text-align: center; cursor: pointer; transition: 0.25s; width: 280px;
+        }
+        .map-card:hover { border-color: #00e5ff; transform: scale(1.05); box-shadow: 0 0 20px rgba(0, 229, 255, 0.4); }
+        .map-card h3 { font-size: 24px; margin: 10px 0; color: #fff; }
+        .map-card p { color: #aaa; font-size: 14px; }
+        .btn-select {
+            margin-top: 15px; padding: 10px 20px; background-color: #00e5ff;
+            color: #000; border: none; border-radius: 5px; font-weight: bold; cursor: pointer;
+        }
+
+        #gameOverOverlay {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(12, 0, 0, 0.88); flex-direction: column; justify-content: center;
+            align-items: center; z-index: 150; animation: fadeIn 0.4s ease-out;
+        }
+        #gameOverOverlay h1 {
+            font-size: 72px; color: #ff1744; text-shadow: 0 0 30px #ff1744, 0 0 60px #b71c1c;
+            margin: 0 0 10px 0; letter-spacing: 6px; font-weight: 900;
+        }
+        #gameOverOverlay h2 {
+            font-size: 32px; color: #ffd700; margin: 10px 0; text-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
+        }
+        #gameOverScoreText {
+            font-size: 26px; color: #ffffff; margin: 15px 0; font-family: monospace;
+        }
+        #gameOverOverlay p.tip {
+            font-size: 16px; color: #bbb; margin-top: 20px; letter-spacing: 1px;
+        }
+
+        #levelClearOverlay {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 15, 30, 0.90); flex-direction: column; justify-content: center;
+            align-items: center; z-index: 140; animation: fadeIn 0.35s ease-out;
+        }
+        #levelClearOverlay h1 {
+            font-size: 64px; color: #00e5ff; text-shadow: 0 0 25px #00e5ff, 0 0 50px #0091ea;
+            margin: 0 0 15px 0; letter-spacing: 4px; font-weight: 900;
+        }
+        #levelClearOverlay h2 {
+            font-size: 28px; color: #76ff03; margin: 10px 0; text-shadow: 0 0 12px rgba(118, 255, 3, 0.6);
+        }
+        #levelClearOverlay p.alert {
+            font-size: 22px; color: #ff5252; margin-top: 20px; font-weight: bold;
+            text-shadow: 0 0 12px red; animation: blink 0.8s infinite alternate;
+        }
+        @keyframes blink {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(1.05); }
+            to { opacity: 1; transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div id="lobbyOverlay">
+        <h1>🧟 請選擇戰鬥戰場 🗺️</h1>
+
+        <label class="lobby-options">
+            <input type="checkbox" id="lobbyDebugCheckbox" style="transform: scale(1.4);">
+            🛠️ 啟用除錯測試模式（無敵人生成、安心測試地圖邊界）
+        </label>
+
+        <div class="map-grid">
+            <div class="map-card" onclick="selectMap('map1')">
+                <h3>地下管道迷宮</h3>
+                <p>狹窄管線與獨立立柱交錯，考驗卡位與走廊壓制！</p>
+                <button class="btn-select">進入戰場</button>
+            </div>
+            <div class="map-card" onclick="selectMap('map2')">
+                <h3>廢棄要塞碉堡</h3>
+                <p>大型開闊走廊與堅固要塞，利於拉扯與遠距殲敵！</p>
+                <button class="btn-select">進入戰場</button>
+            </div>
+            <div class="map-card" onclick="selectMap('map3')">
+                <h3>感染核心隔離區</h3>
+                <p>開闊中央走廊與高密度外圍障礙，火力全開的終極試煉！</p>
+                <button class="btn-select">進入戰場</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="gameOverOverlay">
+        <h1>💀 GAME OVER 💀</h1>
+        <h2>全 隊 陣 亡</h2>
+        <p id="gameOverScoreText">最終生存總分：0</p>
+        <p class="tip">⏳ 正在返回戰場選擇畫面...</p>
+    </div>
+
+    <div id="levelClearOverlay">
+        <h1 id="clearTitle">🎉 LEVEL 1 通關！ 🎉</h1>
+        <h2 id="clearSubtitle">✅ 已殲滅 20 隻感染者！已解鎖新武器【UZI】！</h2>
+        <p id="clearAlert" class="alert">⚠️ 警戒：高能量反應接近中... LEVEL 2 即將展開！ ⚠️</p>
+    </div>
+
+    <div id="info">連線中...</div>
+    <div id="weaponHud">🔫 武器：標準手槍 (射速: 慢)</div>
+    <div id="mousePosText">📍 游標座標：(X: 0, Y: 0) | [F2] 碰撞框 | [F3] 模式切換</div>
+
+    <div class="top-btns">
+        <div id="levelSelectGroup" style="display: none; gap: 4px; align-items: center; margin-right: 6px;">
+            <span style="font-size: 12px; color: #aaa; font-weight: bold;">測試跳關:</span>
+            <button id="btnLvl1" class="btn-lvl lvl-active" onclick="adminSetLevel(1)" title="快捷鍵: Shift + 1">Lv.1</button>
+            <button id="btnLvl2" class="btn-lvl" onclick="adminSetLevel(2)" title="快捷鍵: Shift + 2">Lv.2</button>
+            <button id="btnLvl3" class="btn-lvl" onclick="adminSetLevel(3)" title="快捷鍵: Shift + 3">Lv.3</button>
+            <button id="btnLvl4" class="btn-lvl" onclick="adminSetLevel(4)" title="快捷鍵: Shift + 4">Lv.4</button>
+        </div>
+        <button id="modeBtn" class="btn-header" style="display: none;" onclick="toggleDebugMode()">⚔️ 正式戰鬥</button>
+        <button id="leaveBtn" class="btn-header" onclick="leaveToLobby()">🚪 離開遊戲</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    <p id="controls">🎮 操作：[W,A,S,D] 移動 | [空白鍵] 開火 | [ , ] 換槍 | [G] 單發丟手榴彈(冷卻1.2s) | [Shift+1~4] 隨選跳關</p>
+
+    <script>
+        const socket = io('http://100.106.122.112:3000', { transports: ['websocket'] });
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const infoMsg = document.getElementById('info');
+        const weaponHud = document.getElementById('weaponHud');
+        const mousePosText = document.getElementById('mousePosText');
+        const lobbyOverlay = document.getElementById('lobbyOverlay');
+        const lobbyDebugCheckbox = document.getElementById('lobbyDebugCheckbox');
+        const leaveBtn = document.getElementById('leaveBtn');
+        const modeBtn = document.getElementById('modeBtn');
+        const levelSelectGroup = document.getElementById('levelSelectGroup');
+        const gameOverOverlay = document.getElementById('gameOverOverlay');
+        const gameOverScoreText = document.getElementById('gameOverScoreText');
+        const levelClearOverlay = document.getElementById('levelClearOverlay');
+        const clearTitle = document.getElementById('clearTitle');
+        const clearSubtitle = document.getElementById('clearSubtitle');
+        const clearAlert = document.getElementById('clearAlert');
+
+        canvas.width = 1920;
+        canvas.height = 1080;
+
+        let showDebugWalls = false;
+        let isDebugMode = false;
+        let clientMapWalls = [];
+
+        let myPredictedPos = null;
+        let lastFrameTime = performance.now();
+        let lastRecordedKnockback = 0;
+        let gameOverTimer = null;
+        let currentClientLevel = 1;
+
+        // 🌟 手榴彈投擲冷卻控制（防止連發）
+        const GRENADE_COOLDOWN = 1200; // 1.2 秒單發投擲冷卻
+        let lastGrenadeThrowTime = 0;
+
+        // 武器清單
+        const WEAPONS = {
+            pistol: {
+                id: 'pistol',
+                name: '標準手槍',
+                interval: 380,
+                speed: 16,
+                color: '#ffd700',
+                tag: '射速: 慢',
+                ammo: Infinity,
+                maxAmmo: Infinity
+            },
+            uzi: {
+                id: 'uzi',
+                name: 'UZI',
+                interval: 90,
+                speed: 18,
+                color: '#00e5ff',
+                tag: '射速: 極快 (連射)',
+                ammo: 200,
+                maxAmmo: 200
+            },
+            shotgun: {
+                id: 'shotgun',
+                name: '霰彈槍 (Shotgun)',
+                interval: 650,
+                speed: 17,
+                color: '#ff3d00',
+                tag: '重火力: 扇形擴散 (一槍秒小怪 / 3槍打BOSS)',
+                ammo: Infinity,
+                maxAmmo: Infinity
+            },
+            grenade: {
+                id: 'grenade',
+                name: '手榴彈 (Grenade)',
+                interval: 1200,
+                speed: 13.5,
+                color: '#76ff03',
+                tag: '單發投擲: 5秒定時巨型轟炸 [按G或空白鍵]',
+                ammo: 10,
+                maxAmmo: 10
+            }
+        };
+
+        let unlockedWeapons = ['pistol'];
+        let currentWeaponKey = 'pistol';
+
+        function updateLevelUiHighlight(lvl) {
+            currentClientLevel = lvl;
+            for (let i = 1; i <= 4; i++) {
+                const btn = document.getElementById(`btnLvl${i}`);
+                if (btn) btn.classList.toggle('lvl-active', i === lvl);
+            }
+        }
+
+        function adminSetLevel(lvl) {
+            socket.emit('adminSetLevel', lvl);
+        }
+
+        function applyLevelWeapons(lvl) {
+            if (lvl === 1) {
+                unlockedWeapons = ['pistol'];
+                currentWeaponKey = 'pistol';
+            } else if (lvl === 2) {
+                unlockedWeapons = ['pistol', 'uzi'];
+                currentWeaponKey = 'uzi';
+                WEAPONS.uzi.ammo = 200;
+            } else if (lvl === 3) {
+                unlockedWeapons = ['pistol', 'uzi', 'shotgun'];
+                currentWeaponKey = 'shotgun';
+                WEAPONS.uzi.ammo = 200;
+            } else if (lvl === 4) {
+                unlockedWeapons = ['pistol', 'uzi', 'shotgun', 'grenade'];
+                currentWeaponKey = 'grenade';
+                WEAPONS.uzi.ammo = 200;
+                WEAPONS.grenade.ammo = 10;
+            }
+            updateWeaponHud();
+        }
+
+        function updateWeaponHud() {
+            const w = WEAPONS[currentWeaponKey];
+            let switchHint = unlockedWeapons.length > 1 ? `<span style="color: #aaa; font-size: 13px;">[按 , 切換 (${unlockedWeapons.length}把)]</span>` : `<span style="color: #777; font-size: 12px;">(通關解鎖更多武器)</span>`;
+            
+            let ammoDisplay = '';
+            if (w.maxAmmo !== Infinity) {
+                const isOutOfAmmo = (w.ammo <= 0);
+                ammoDisplay = `<span style="color: ${isOutOfAmmo ? '#ff1744' : '#00e5ff'}; margin-left: 6px;">[彈藥: ${w.ammo} / ${w.maxAmmo}]</span>`;
+            } else {
+                ammoDisplay = `<span style="color: #bbb; margin-left: 6px;">[彈藥: 無限]</span>`;
+            }
+
+            weaponHud.innerHTML = `<span style="color: ${w.color};">🔫 武器：${w.name} (${w.tag})</span> ${ammoDisplay} ${switchHint}`;
+        }
+
+        function switchWeapon() {
+            if (!inGame) return;
+            if (unlockedWeapons.length <= 1) {
+                weaponHud.innerHTML = `<span style="color: #ff5252;">⚠️ 通關更高關卡即可解鎖新武器！</span>`;
+                setTimeout(updateWeaponHud, 1200);
+                return;
+            }
+            let curIdx = unlockedWeapons.indexOf(currentWeaponKey);
+            let nextIdx = (curIdx + 1) % unlockedWeapons.length;
+            currentWeaponKey = unlockedWeapons[nextIdx];
+            updateWeaponHud();
+        }
+
+        // 🌟 嚴格單發投擲手榴彈（加入 1.2 秒冷卻防連發）
+        function throwGrenadeAction() {
+            if (!inGame) return;
+            if (!unlockedWeapons.includes('grenade')) {
+                weaponHud.innerHTML = `<span style="color: #ff5252;">⚠️ Level 4 才會解鎖定時手榴彈！</span>`;
+                setTimeout(updateWeaponHud, 1200);
+                return;
+            }
+            if (WEAPONS.grenade.ammo <= 0) {
+                weaponHud.innerHTML = `<span style="color: #ff1744;">⚠️ 手榴彈已用盡 (0 / 10)！</span>`;
+                setTimeout(updateWeaponHud, 1200);
+                return;
+            }
+
+            const now = Date.now();
+            if (now - lastGrenadeThrowTime < GRENADE_COOLDOWN) {
+                const waitSec = ((GRENADE_COOLDOWN - (now - lastGrenadeThrowTime)) / 1000).toFixed(1);
+                weaponHud.innerHTML = `<span style="color: #ff9800;">⏳ 手榴彈準備中... (${waitSec}s)</span>`;
+                setTimeout(updateWeaponHud, 500);
+                return;
+            }
+
+            lastGrenadeThrowTime = now;
+            WEAPONS.grenade.ammo--;
+            updateWeaponHud();
+
+            socket.emit('throwGrenade', {
+                dirX: facingDir.x,
+                dirY: facingDir.y
+            });
+        }
+
+        const smoothedPositions = {
+            players: {},
+            zombies: {}
+        };
+
+        const activeExplosions = [];
+
+        function updateStatusText(mx = 0, my = 0) {
+            const modeName = isDebugMode ? "🛠️ 除錯測試" : "⚔️ 正式戰鬥";
+            mousePosText.innerText = `📍 游標座標：(X: ${mx}, Y: ${my}) | [F2] 碰撞框：${showDebugWalls ? '開啟' : '關閉'} | [F3] 模式：${modeName}`;
+            
+            if (isDebugMode) {
+                modeBtn.innerText = "🛠️ 模式：除錯測試";
+                modeBtn.classList.add('debug-active');
+            } else {
+                modeBtn.innerText = "⚔️ 模式：正式戰鬥";
+                modeBtn.classList.remove('debug-active');
+            }
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mx = Math.round((e.clientX - rect.left) * scaleX);
+            const my = Math.round((e.clientY - rect.top) * scaleY);
+            updateStatusText(mx, my);
+        });
+
+        let currentMapBg = new Image();
+        const medkitImg = new Image(); medkitImg.src = 'medkit.png';
+        const barrelImg = new Image(); barrelImg.src = 'barrel.png';
+
+        // 🌟 手榴彈專屬貼圖載入
+        const grenadeImg = new Image();
+        grenadeImg.src = 'grenade.png';
+
+        // BOSS 貼圖陣列
+        const BOSS_SIZE = 70;
+        const BOSS_WALK_INTERVAL = 190;
+        const bossFrontImg = new Image(); bossFrontImg.src = 'boss_front.png';
+
+        const bossWalkDownImgs = [new Image(), new Image(), new Image()];
+        bossWalkDownImgs[0].src = 'boss_walk_down1.png';
+        bossWalkDownImgs[1].src = 'boss_walk_down2.png';
+        bossWalkDownImgs[2].src = 'boss_walk_down3.png';
+
+        const bossWalkUpImgs = [new Image(), new Image(), new Image()];
+        bossWalkUpImgs[0].src = 'boss_walk_up1.png';
+        bossWalkUpImgs[1].src = 'boss_walk_up2.png';
+        bossWalkUpImgs[2].src = 'boss_walk_up3.png';
+
+        const bossWalkRightImgs = [];
+        for (let i = 1; i <= 6; i++) {
+            const img = new Image(); img.src = `boss_walk_right${i}.png`; bossWalkRightImgs.push(img);
+        }
+
+        const bossShootUpImgs = [];
+        for (let i = 1; i <= 5; i++) {
+            const img = new Image(); img.src = `boss_shoot_up${i}.png`; bossShootUpImgs.push(img);
+        }
+        const bossAttackUpImgs = [];
+        for (let i = 1; i <= 5; i++) {
+            const img = new Image(); img.src = `boss_attack_up${i}.png`; bossAttackUpImgs.push(img);
+        }
+
+        const bossShootDownImgs = [];
+        for (let i = 1; i <= 5; i++) {
+            const img = new Image(); img.src = `boss_shoot_down${i}.png`; bossShootDownImgs.push(img);
+        }
+
+        const bossShootRightImgs = [];
+        for (let i = 1; i <= 7; i++) {
+            const img = new Image(); img.src = `boss_shoot_right${i}.png`; bossShootRightImgs.push(img);
+        }
+
+        const bossBulletImg = new Image();
+        bossBulletImg.src = 'boss_bullet.png';
+
+        const bossDownImgs = [];
+        for (let i = 1; i <= 6; i++) {
+            const img = new Image(); img.src = `boss_down${i}.png`; bossDownImgs.push(img);
+        }
+        const BOSS_DOWN_INTERVAL = 130;
+
+        // 普通殭屍貼圖
+        const zombieWalkImgs = [];
+        for (let i = 1; i <= 6; i++) {
+            const img = new Image(); img.src = `zombie_walk${i}.png`; zombieWalkImgs.push(img);
+        }
+        const zombieWalkUpImgs = [];
+        for (let i = 1; i <= 6; i++) {
+            const img = new Image(); img.src = `zombie_walk_up${i}.png`; zombieWalkUpImgs.push(img);
+        }
+        const zombieWalkRightImgs = [];
+        for (let i = 1; i <= 4; i++) {
+            const img = new Image(); img.src = `zombie_walk_right${i}.png`; zombieWalkRightImgs.push(img);
+        }
+        const zombieAttackImgs = [];
+        for (let i = 1; i <= 8; i++) {
+            const img = new Image(); img.src = `zombie_attack${i}.png`; zombieAttackImgs.push(img);
+        }
+        const zombieAttackDownImgs = [];
+        for (let i = 1; i <= 8; i++) {
+            const img = new Image(); img.src = `zombie_attack_down${i}.png`; zombieAttackDownImgs.push(img);
+        }
+        const zombieAttackUpImgs = [];
+        for (let i = 1; i <= 6; i++) {
+            const img = new Image(); img.src = `zombie_attack_up${i}.png`; zombieAttackUpImgs.push(img);
+        }
+        const zombieDownImgs = [];
+        for (let i = 1; i <= 5; i++) {
+            const img = new Image(); img.src = `zombie_down${i}.png`; zombieDownImgs.push(img);
+        }
+        const ZOMBIE_DOWN_INTERVAL = 110;
+        const fallbackZombieImg = new Image(); fallbackZombieImg.src = 'zombie.png';
+
+        const ZOMBIE_SIZE = 70;
+        const ZOMBIE_WALK_INTERVAL = 220;
+        const ZOMBIE_WIDTH_SCALE = 0.78;
+        const ZOMBIE_SIDE_WIDTH_RATIO = 0.68;
+
+        // 玩家貼圖
+        const playerBackImg = new Image(); playerBackImg.src = 'player_back.png';
+        const playerFrontImg = new Image(); playerFrontImg.src = 'player_front.png';
+        const playerRightImg = new Image(); playerRightImg.src = 'player_right.png';
+        const PLAYER_SIZE = 60;
+        const playerDownImgs = [];
+        for (let i = 1; i <= 5; i++) {
+            const img = new Image(); img.src = `player_down${i}.png`; playerDownImgs.push(img);
+        }
+        const PLAYER_DOWN_INTERVAL = 140;
+
+        const deadZombies = [];
+        function triggerZombieDown(x, y, facingLeft, isSideWalk, isBoss = false) {
+            deadZombies.push({ x, y, facingLeft, isSideWalk, isBoss, startTime: Date.now() });
+        }
+
+        let currentGameState = null;
+        let inGame = false;
+        const keysPressed = {};
+        const clientDeathTimes = {};
+        let facingDir = { x: 0, y: -1 }; 
+
+        let lastInputState = { up: false, down: false, left: false, right: false };
+        let lastShootTime = 0;
+
+        function distSqToSegmentLocal(px, py, x1, y1, x2, y2) {
+            const dx = x2 - x1, dy = y2 - y1;
+            const lenSq = dx * dx + dy * dy;
+            if (lenSq === 0) return (px - x1) ** 2 + (py - y1) ** 2;
+            let t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+            return (px - (x1 + t * dx)) ** 2 + (py - (y1 + t * dy)) ** 2;
+        }
+
+        function pointInPolygonLocal(px, py, points) {
+            let inside = false;
+            for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+                const xi = points[i].x, yi = points[i].y;
+                const xj = points[j].x, yj = points[j].y;
+                const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        function checkCollisionLocal(x, y, radius, walls) {
+            if (!walls) return false;
+            for (let w of walls) {
+                if (w.points && w.points.length >= 3) {
+                    if (pointInPolygonLocal(x, y, w.points)) return true;
+                    const rSq = radius * radius;
+                    for (let i = 0, j = w.points.length - 1; i < w.points.length; j = i++) {
+                        if (distSqToSegmentLocal(x, y, w.points[i].x, w.points[i].y, w.points[j].x, w.points[j].y) < rSq) return true;
+                    }
+                } else if (w.width) {
+                    const cr = Math.min(16, w.width / 2, w.height / 2);
+                    const innerMinX = w.x + cr, innerMaxX = w.x + w.width - cr;
+                    const innerMinY = w.y + cr, innerMaxY = w.y + w.height - cr;
+                    const closestX = Math.max(innerMinX, Math.min(x, innerMaxX));
+                    const closestY = Math.max(innerMinY, Math.min(y, innerMaxY));
+                    const dx = x - closestX, dy = y - closestY;
+                    if ((dx * dx + dy * dy) < ((radius + cr) ** 2)) return true;
+                }
+            }
+            return false;
+        }
+
+        function selectMap(mapId) {
+            const isDebug = lobbyDebugCheckbox.checked;
+            socket.emit('joinGame', { mapId, isDebug });
+            lobbyOverlay.style.display = 'none';
+            gameOverOverlay.style.display = 'none';
+            levelClearOverlay.style.display = 'none';
+            leaveBtn.style.display = 'block';
+            modeBtn.style.display = 'block';
+            levelSelectGroup.style.display = 'flex';
+            inGame = true;
+            myPredictedPos = null;
+            applyLevelWeapons(1);
+            updateLevelUiHighlight(1);
+        }
+
+        function toggleDebugMode() {
+            socket.emit('toggleDebugMode');
+        }
+
+        function leaveToLobby() {
+            if (gameOverTimer) { clearTimeout(gameOverTimer); gameOverTimer = null; }
+            socket.emit('leaveGame');
+            gameOverOverlay.style.display = 'none';
+            levelClearOverlay.style.display = 'none';
+            lobbyOverlay.style.display = 'flex';
+            leaveBtn.style.display = 'none';
+            modeBtn.style.display = 'none';
+            levelSelectGroup.style.display = 'none';
+            inGame = false;
+            currentGameState = null;
+            myPredictedPos = null;
+            deadZombies.length = 0;
+            activeExplosions.length = 0;
+            applyLevelWeapons(1);
+            updateLevelUiHighlight(1);
+            infoMsg.innerText = "請選擇戰場...";
+        }
+
+        socket.on('gameInit', (data) => {
+            currentMapBg = new Image();
+            currentMapBg.src = data.bg;
+            isDebugMode = !!data.debugMode;
+            clientMapWalls = data.walls || [];
+            gameOverOverlay.style.display = 'none';
+            levelClearOverlay.style.display = 'none';
+            applyLevelWeapons(data.level || 1);
+            updateLevelUiHighlight(data.level || 1);
+            updateStatusText();
+            infoMsg.innerText = isDebugMode 
+                ? `🛠️ 已進入【${data.mapName}】(除錯模式，無怪)` 
+                : `🔥 已進入【${data.mapName}】！準備迎戰！`;
+        });
+
+        socket.on('debugModeChanged', (mode) => {
+            isDebugMode = mode;
+            deadZombies.length = 0;
+            activeExplosions.length = 0;
+            updateStatusText();
+            infoMsg.innerText = isDebugMode 
+                ? `🛠️ 已切換為【除錯測試模式】(場上怪物已清空)` 
+                : `⚔️ 已恢復為【正式戰鬥模式】(怪物開始生成)`;
+        });
+
+        socket.on('levelClear', (data) => {
+            if (data.clearedLevel === 1) {
+                clearTitle.innerText = "🎉 LEVEL 1 通關！ 🎉";
+                clearSubtitle.innerText = "✅ 已殲滅 20 隻感染者！已解鎖新武器【UZI (200發)】！";
+                clearAlert.innerText = "⚠️ 警戒：高能量反應接近中... LEVEL 2 即將展開！ ⚠️";
+                applyLevelWeapons(2);
+            } else if (data.clearedLevel === 2) {
+                clearTitle.innerText = "🏆 LEVEL 2 擊破！ 🏆";
+                clearSubtitle.innerText = "💥 成功消滅 40 隻小怪與 5 隻 BOSS！已解鎖【霰彈槍】，且 UZI 彈藥補滿！";
+                clearAlert.innerText = "⚠️ 戰役升級：LEVEL 3 殘酷拉扯戰開始！ ⚠️";
+                applyLevelWeapons(3);
+            } else if (data.clearedLevel === 3) {
+                clearTitle.innerText = "🎖️ LEVEL 3 大獲全勝！ 🎖️";
+                clearSubtitle.innerText = "💣 已達成指標！已配發【10顆 5秒定時手榴彈】！";
+                clearAlert.innerText = "⚠️ 終極死鬥：LEVEL 4 終極生存戰正式展開！ ⚠️";
+                applyLevelWeapons(4);
+            }
+            updateLevelUiHighlight(data.nextLevel);
+            levelClearOverlay.style.display = 'flex';
+        });
+
+        socket.on('levelStart', (data) => {
+            levelClearOverlay.style.display = 'none';
+            applyLevelWeapons(data.level);
+            updateLevelUiHighlight(data.level);
+        });
+
+        socket.on('gameOver', (data) => {
+            if (!inGame) return;
+            const finalScore = data.score || (currentGameState ? currentGameState.score : 0);
+            gameOverScoreText.innerText = `最終生存總分：${finalScore}`;
+            gameOverOverlay.style.display = 'flex';
+
+            if (gameOverTimer) clearTimeout(gameOverTimer);
+            gameOverTimer = setTimeout(() => {
+                leaveToLobby();
+            }, 3000);
+        });
+
+        socket.on('barrelExploded', (data) => {
+            activeExplosions.push({
+                x: data.x,
+                y: data.y,
+                maxRadius: data.radius || 145,
+                startTime: performance.now(),
+                duration: 480
+            });
+        });
+
+        socket.on('grenadeExploded', (data) => {
+            activeExplosions.push({
+                x: data.x,
+                y: data.y,
+                maxRadius: data.radius || 180,
+                startTime: performance.now(),
+                duration: 620
+            });
+        });
+
+        socket.on('updateState', (gameState) => {
+            if (!inGame) return;
+
+            if (gameState.debugMode !== undefined && gameState.debugMode !== isDebugMode) {
+                isDebugMode = gameState.debugMode;
+                updateStatusText();
+            }
+
+            if (gameState.level && gameState.level !== currentClientLevel) {
+                updateLevelUiHighlight(gameState.level);
+            }
+
+            if (currentGameState && currentGameState.zombies && gameState.zombies) {
+                currentGameState.zombies.forEach(oldZ => {
+                    if (oldZ._isDown) return;
+                    const stillAlive = gameState.zombies.some(newZ => (newZ.id && newZ.id === oldZ.id) || Math.hypot(newZ.x - oldZ.x, newZ.y - oldZ.y) < 55);
+                    if (!stillAlive) {
+                        triggerZombieDown(oldZ.x, oldZ.y, oldZ.facingLeft, oldZ.walkDir === 'side', !!oldZ.isBoss);
+                    }
+                });
+
+                gameState.zombies.forEach(newZ => {
+                    const match = currentGameState.zombies.find(oldZ => (oldZ.id && oldZ.id === newZ.id) || Math.hypot(newZ.x - oldZ.x, newZ.y - oldZ.y) < 30);
+                    if (match) {
+                        if (match._isDown) newZ._isDown = true;
+                        if (match._clientHp !== undefined) newZ._clientHp = Math.min(newZ.hp, match._clientHp);
+                    }
+                });
+            }
+
+            currentGameState = gameState;
+        });
+
+        // 🌟 射擊邏輯：手榴彈徹底排除於此（禁止常態按住射擊）
+        function tryShoot() {
+            if (!inGame) return;
+            if (currentWeaponKey === 'grenade') return; // 🌟 手榴彈不可透過 tryShoot 連發
+
+            const now = Date.now();
+            const currentWeapon = WEAPONS[currentWeaponKey];
+
+            if (currentWeapon.maxAmmo !== Infinity && currentWeapon.ammo <= 0) {
+                weaponHud.innerHTML = `<span style="color: #ff1744;">⚠️ ${currentWeapon.name} 彈藥已耗盡！[請按 , 切換武器]</span>`;
+                return;
+            }
+
+            if (now - lastShootTime >= currentWeapon.interval) {
+                if (currentWeapon.maxAmmo !== Infinity) {
+                    currentWeapon.ammo = Math.max(0, currentWeapon.ammo - 1);
+                    updateWeaponHud();
+                }
+
+                socket.emit('shoot', {
+                    dirX: facingDir.x,
+                    dirY: facingDir.y,
+                    speed: currentWeapon.speed,
+                    color: currentWeapon.color,
+                    weapon: currentWeaponKey
+                });
+                lastShootTime = now;
+            }
+        }
+
+        function syncPlayerInput() {
+            if (!inGame) return;
+
+            const up = !!(keysPressed['w'] || keysPressed['arrowup']);
+            const down = !!(keysPressed['s'] || keysPressed['arrowdown']);
+            const left = !!(keysPressed['a'] || keysPressed['arrowleft']);
+            const right = !!(keysPressed['d'] || keysPressed['arrowright']);
+
+            let moveX = 0, moveY = 0;
+            if (left) moveX -= 1;
+            if (right) moveX += 1;
+            if (up) moveY -= 1;
+            if (down) moveY += 1;
+
+            if (moveX !== 0 || moveY !== 0) {
+                facingDir = { x: moveX, y: moveY };
+                socket.emit('updateDir', facingDir);
+            }
+
+            if (up !== lastInputState.up || down !== lastInputState.down ||
+                left !== lastInputState.left || right !== lastInputState.right) {
+                lastInputState = { up, down, left, right };
+                socket.emit('playerInput', lastInputState);
+            }
+        }
+
+        function drawGroundedShadow(x, y, radiusX = 22, radiusY = 9) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.ellipse(x, y + 16, radiusX * 1.15, radiusY * 1.15, 0, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(25, 10, 5, 0.22)';
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.ellipse(x, y + 16, radiusX * 0.85, radiusY * 0.85, 0, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 10, 5, 0.35)';
+            ctx.fill();
+            ctx.restore();
+        }
+
+        function drawVectorBarrel(x, y, hp) {
+            const bw = 48, bh = 62;
+            const bx = x - bw / 2, by = y - bh / 2;
+
+            ctx.fillStyle = '#b71c1c';
+            ctx.fillRect(bx, by, bw, bh);
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.fillRect(bx + 6, by, 8, bh);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+            ctx.fillRect(bx + bw - 8, by, 8, bh);
+
+            ctx.fillStyle = '#212121';
+            ctx.fillRect(bx, by + 12, bw, 5);
+            ctx.fillRect(bx, by + bh - 17, bw, 5);
+
+            ctx.fillStyle = '#ffd600';
+            ctx.fillRect(bx + 8, by + 22, bw - 16, 16);
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('OIL', x, by + 34);
+
+            ctx.strokeStyle = '#424242';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(bx, by, bw, bh);
+
+            if (hp === 1) {
+                ctx.fillStyle = '#ff1744';
+                ctx.beginPath();
+                ctx.arc(x, by - 8, 4.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 🌟 手榴彈渲染：優先使用 grenade.png 圖片，圖檔不存在時無縫備援向量繪製
+        function drawGrenadeEntity(g, nowMs) {
+            drawGroundedShadow(g.x, g.y - 10, 12, 6);
+
+            ctx.save();
+            ctx.translate(g.x, g.y);
+
+            const GRENADE_DRAW_SIZE = 28;
+
+            if (grenadeImg.complete && grenadeImg.naturalWidth !== 0) {
+                // 圖片渲染
+                ctx.drawImage(grenadeImg, -GRENADE_DRAW_SIZE / 2, -GRENADE_DRAW_SIZE / 2, GRENADE_DRAW_SIZE, GRENADE_DRAW_SIZE);
+            } else {
+                // 向量備援
+                ctx.fillStyle = '#33691e';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 11, 14, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#1b5e20';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                ctx.fillStyle = '#ffd600';
+                ctx.fillRect(-9, -2, 18, 4);
+
+                ctx.strokeStyle = '#cfd8dc';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, -14, 4, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // 🌟 越逼近爆炸，閃爍越急促的紅色引信 LED
+            const freq = Math.max(70, (g.timeLeft / 5000) * 420);
+            const isBlink = (Math.floor(nowMs / freq) % 2 === 0);
+
+            ctx.fillStyle = isBlink ? '#ff1744' : '#b71c1c';
+            ctx.beginPath();
+            ctx.arc(0, -6, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 5 秒即時倒數文字
+            const seconds = (g.timeLeft / 1000).toFixed(1);
+            ctx.fillStyle = isBlink ? '#ff5252' : '#ffffff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`⏱️ ${seconds}s`, 0, -20);
+
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            requestAnimationFrame(gameLoop);
+
+            const now = performance.now();
+            const dt = Math.min(33, Math.max(1, now - lastFrameTime));
+            lastFrameTime = now;
+
+            // 🌟 空白鍵按住只對槍枝連發有效；手榴彈必須單次按下觸發
+            if (inGame && (keysPressed[' '] || keysPressed['space'])) {
+                if (currentWeaponKey !== 'grenade') {
+                    tryShoot();
+                }
+            }
+
+            if (inGame && currentGameState && currentGameState.players && currentGameState.players[socket.id]) {
+                const myServerData = currentGameState.players[socket.id];
+                if (!myPredictedPos) {
+                    myPredictedPos = { x: myServerData.x, y: myServerData.y };
+                }
+
+                if (!myServerData.isDead) {
+                    if (myServerData.lastKnockbackTime && myServerData.lastKnockbackTime !== lastRecordedKnockback) {
+                        lastRecordedKnockback = myServerData.lastKnockbackTime;
+                        myPredictedPos.x = myServerData.x;
+                        myPredictedPos.y = myServerData.y;
+                    }
+
+                    let vx = 0, vy = 0;
+                    if (keysPressed['w'] || keysPressed['arrowup']) vy -= 1;
+                    if (keysPressed['s'] || keysPressed['arrowdown']) vy += 1;
+                    if (keysPressed['a'] || keysPressed['arrowleft']) vx -= 1;
+                    if (keysPressed['d'] || keysPressed['arrowright']) vx += 1;
+
+                    const isMoving = (vx !== 0 || vy !== 0);
+
+                    if (isMoving) {
+                        const SPEED_PER_SEC = 330;
+                        let moveDistance = (SPEED_PER_SEC * dt) / 1000;
+                        if (vx !== 0 && vy !== 0) moveDistance *= 0.7071;
+
+                        let nextX = Math.max(30, Math.min(1920 - 30, myPredictedPos.x + vx * moveDistance));
+                        let nextY = Math.max(30, Math.min(1080 - 30, myPredictedPos.y + vy * moveDistance));
+
+                        if (!checkCollisionLocal(nextX, nextY, 17, clientMapWalls)) {
+                            myPredictedPos.x = nextX;
+                            myPredictedPos.y = nextY;
+                        } else {
+                            let canX = !checkCollisionLocal(nextX, myPredictedPos.y, 17, clientMapWalls);
+                            let canY = !checkCollisionLocal(myPredictedPos.x, nextY, 17, clientMapWalls);
+                            if (canX) myPredictedPos.x = nextX;
+                            if (canY) myPredictedPos.y = nextY;
+
+                            if (!canX && !canY) {
+                                let halfStepX = vx * moveDistance * 0.6;
+                                let halfStepY = vy * moveDistance * 0.6;
+                                if (halfStepX !== 0 && !checkCollisionLocal(myPredictedPos.x + halfStepX, myPredictedPos.y, 17, clientMapWalls)) {
+                                    myPredictedPos.x += halfStepX;
+                                }
+                                if (halfStepY !== 0 && !checkCollisionLocal(myPredictedPos.x, myPredictedPos.y + halfStepY, 17, clientMapWalls)) {
+                                    myPredictedPos.y += halfStepY;
+                                }
+                            }
+                        }
+                    }
+
+                    const errDist = Math.hypot(myServerData.x - myPredictedPos.x, myServerData.y - myPredictedPos.y);
+                    if (errDist > 200) {
+                        myPredictedPos.x = myServerData.x;
+                        myPredictedPos.y = myServerData.y;
+                    } else if (!isMoving && errDist > 8) {
+                        myPredictedPos.x += (myServerData.x - myPredictedPos.x) * 0.08;
+                        myPredictedPos.y += (myServerData.y - myPredictedPos.y) * 0.08;
+                    }
+                } else {
+                    myPredictedPos.x = myServerData.x;
+                    myPredictedPos.y = myServerData.y;
+                }
+            }
+
+            if (!currentGameState || !inGame) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 底層地圖
+            if (currentMapBg.complete && currentMapBg.naturalWidth !== 0) {
+                ctx.drawImage(currentMapBg, 0, 0, canvas.width, canvas.height);
+            }
+
+            // 關卡進度 HUD 顯示
+            if (isDebugMode) {
+                infoMsg.innerText = `🛠️ 除錯測試模式 (無怪物干擾)`;
+            } else if (currentGameState.level === 1) {
+                infoMsg.innerText = `⚔️【LEVEL 1】清除感染者 ｜ 剩餘小怪：${currentGameState.level1Remaining || 0} / 20 ｜ 分數：${currentGameState.score}`;
+            } else if (currentGameState.level === 2) {
+                infoMsg.innerText = `🔥【LEVEL 2】頭目作戰 ｜ 剩餘小怪：${currentGameState.level2ZombiesRemaining || 0} / 40 ｜ 剩餘BOSS：${currentGameState.level2BossesRemaining || 0} / 5 ｜ 分數：${currentGameState.score}`;
+            } else if (currentGameState.level === 3) {
+                infoMsg.innerText = `💥【LEVEL 3】殘酷拉扯戰 ｜ 剩餘小怪：${currentGameState.level3ZombiesRemaining || 0} / 40 ｜ 剩餘BOSS：${currentGameState.level3BossesRemaining || 0} / 5 ｜ 分數：${currentGameState.score}`;
+            } else {
+                infoMsg.innerText = `💀【LEVEL 4 - 終極死鬥】投擲定時手榴彈殲滅屍潮！ ｜ 分數：${currentGameState.score}`;
+            }
+
+            // 2. 補血包
+            if (currentGameState.items) {
+                const nowMs = Date.now();
+                const hoverOffset = Math.sin(nowMs / 200) * 3;
+                currentGameState.items.forEach(item => {
+                    const itemSize = item.size || 40;
+                    const drawY = item.y + hoverOffset;
+                    drawGroundedShadow(item.x, item.y - 1, 16, 7);
+                    if (medkitImg.complete && medkitImg.naturalWidth !== 0) {
+                        ctx.drawImage(medkitImg, item.x - itemSize / 2, drawY - itemSize / 2, itemSize, itemSize);
+                    } else {
+                        ctx.fillStyle = '#00e676';
+                        ctx.fillRect(item.x - 16, drawY - 16, 32, 32);
+                    }
+                });
+            }
+
+            // 3. 玩家雷射 / 霰彈
+            if (currentGameState.bullets) {
+                ctx.save();
+                currentGameState.bullets.forEach(b => {
+                    if (b._spent) return;
+                    const speed = Math.hypot(b.vx, b.vy);
+                    if (speed === 0) return;
+                    const nx = b.vx / speed, ny = b.vy / speed;
+                    const beamLength = (b.weapon === 'shotgun') ? 22 : 28;
+
+                    if (currentGameState.zombies) {
+                        for (let z of currentGameState.zombies) {
+                            if (z._isDown) continue;
+                            if (Math.hypot(b.x - z.x, b.y - z.y) < 28) {
+                                b._spent = true;
+                                if (z._clientHp === undefined) z._clientHp = z.hp;
+                                z._clientHp -= (b.weapon === 'shotgun' ? 3 : 1);
+
+                                if (z._clientHp <= 0) {
+                                    z._isDown = true;
+                                    triggerZombieDown(z.x, z.y, z.facingLeft, z.walkDir === 'side', !!z.isBoss);
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    if (b._spent) return;
+
+                    const tailX = b.x - nx * beamLength;
+                    const tailY = b.y - ny * beamLength;
+                    const bColor = b.color || '#ffd700';
+
+                    let glow = 'rgba(255, 235, 59, 0.35)';
+                    if (b.weapon === 'uzi') glow = 'rgba(0, 229, 255, 0.45)';
+                    else if (b.weapon === 'shotgun') glow = 'rgba(255, 61, 0, 0.55)';
+
+                    ctx.strokeStyle = glow;
+                    ctx.lineWidth = (b.weapon === 'shotgun') ? 12 : 10;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(tailX, tailY);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = bColor;
+                    ctx.lineWidth = (b.weapon === 'shotgun') ? 6 : 5;
+                    ctx.beginPath();
+                    ctx.moveTo(tailX, tailY);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(tailX, tailY);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                });
+                ctx.restore();
+            }
+
+            // 3.5 BOSS 砲彈
+            if (currentGameState.bossBullets) {
+                ctx.save();
+                currentGameState.bossBullets.forEach(bb => {
+                    drawGroundedShadow(bb.x, bb.y + 4, 14, 6);
+
+                    if (bossBulletImg.complete && bossBulletImg.naturalWidth !== 0) {
+                        ctx.drawImage(bossBulletImg, bb.x - 16, bb.y - 16, 32, 32);
+                    } else {
+                        ctx.beginPath();
+                        ctx.arc(bb.x, bb.y, 16, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(255, 23, 68, 0.35)';
+                        ctx.fill();
+
+                        ctx.beginPath();
+                        ctx.arc(bb.x, bb.y, 11, 0, Math.PI * 2);
+                        ctx.fillStyle = '#ff1744';
+                        ctx.fill();
+
+                        ctx.beginPath();
+                        ctx.arc(bb.x, bb.y, 6, 0, Math.PI * 2);
+                        ctx.fillStyle = '#ffd600';
+                        ctx.fill();
+                    }
+                });
+                ctx.restore();
+            }
+
+            // 4. 動態物件 Y-Sorting
+            const entities = [];
+            const LERP_FACTOR = 0.45;
+
+            for (let id in currentGameState.players) {
+                const p = currentGameState.players[id];
+                const isMe = (id === socket.id);
+
+                let drawX = p.x;
+                let drawY = p.y;
+
+                if (isMe && myPredictedPos) {
+                    drawX = myPredictedPos.x;
+                    drawY = myPredictedPos.y;
+                } else {
+                    if (!smoothedPositions.players[id]) {
+                        smoothedPositions.players[id] = { x: p.x, y: p.y };
+                    } else {
+                        const sp = smoothedPositions.players[id];
+                        if (Math.hypot(p.x - sp.x, p.y - sp.y) > 140) {
+                            sp.x = p.x; sp.y = p.y;
+                        } else {
+                            sp.x += (p.x - sp.x) * LERP_FACTOR;
+                            sp.y += (p.y - sp.y) * LERP_FACTOR;
+                        }
+                    }
+                    drawX = smoothedPositions.players[id].x;
+                    drawY = smoothedPositions.players[id].y;
+                }
+
+                entities.push({ type: 'player', x: drawX, y: drawY, id: id, data: p });
+            }
+
+            if (currentGameState.zombies) {
+                currentGameState.zombies.forEach((z, idx) => {
+                    if (z._isDown) return;
+                    const zKey = z.id || `z_${idx}`;
+                    if (!smoothedPositions.zombies[zKey]) {
+                        smoothedPositions.zombies[zKey] = { x: z.x, y: z.y };
+                    } else {
+                        const sz = smoothedPositions.zombies[zKey];
+                        if (Math.hypot(z.x - sz.x, z.y - sz.y) > 140) {
+                            sz.x = z.x; sz.y = z.y;
+                        } else {
+                            sz.x += (z.x - sz.x) * LERP_FACTOR;
+                            sz.y += (z.y - sz.y) * LERP_FACTOR;
+                        }
+                    }
+                    const drawPos = smoothedPositions.zombies[zKey];
+                    entities.push({ type: 'zombie', x: drawPos.x, y: drawPos.y, idx: idx, data: z });
+                });
+            }
+
+            if (currentGameState.barrels) {
+                currentGameState.barrels.forEach(br => {
+                    entities.push({ type: 'barrel', x: br.x, y: br.y, data: br });
+                });
+            }
+
+            if (currentGameState.grenades) {
+                currentGameState.grenades.forEach(gr => {
+                    entities.push({ type: 'grenade', x: gr.x, y: gr.y, data: gr });
+                });
+            }
+
+            deadZombies.forEach(dz => {
+                entities.push({ type: 'deadZombie', x: dz.x, y: dz.y, data: dz });
+            });
+
+            entities.sort((a, b) => a.y - b.y);
+
+            const nowMs = Date.now();
+
+            entities.forEach(item => {
+                const posX = item.x;
+                const posY = item.y;
+
+                // A. 畫玩家
+                if (item.type === 'player') {
+                    const p = item.data;
+                    const isMe = (item.id === socket.id);
+                    const flipX = (p.dirX < 0);
+
+                    drawGroundedShadow(posX, posY, 22, 9);
+
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.ellipse(posX, posY + 16, 21, 9, 0, 0, Math.PI * 2);
+                    ctx.strokeStyle = isMe ? 'rgba(0, 229, 255, 0.75)' : 'rgba(255, 170, 0, 0.75)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    ctx.restore();
+
+                    if (p.isDead && !isDebugMode) {
+                        if (!clientDeathTimes[item.id]) clientDeathTimes[item.id] = nowMs;
+                        const deathElapsed = nowMs - clientDeathTimes[item.id];
+                        const downFrameIdx = Math.min(4, Math.floor(deathElapsed / PLAYER_DOWN_INTERVAL));
+                        const downImg = playerDownImgs[downFrameIdx];
+
+                        ctx.save();
+                        ctx.translate(posX, posY);
+                        if (flipX) ctx.scale(-1, 1);
+                        if (downImg && downImg.complete && downImg.naturalWidth !== 0) {
+                            ctx.drawImage(downImg, -PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE);
+                        }
+                        ctx.restore();
+
+                        const progress = p.reviveProgress || 0;
+                        if (progress > 0) {
+                            const pct = Math.min(1.0, progress / 2000);
+
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.arc(posX, posY, 32, 0, Math.PI * 2);
+                            ctx.strokeStyle = 'rgba(0, 230, 118, 0.4)';
+                            ctx.lineWidth = 3;
+                            ctx.stroke();
+
+                            ctx.beginPath();
+                            ctx.arc(posX, posY - 36, 14, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+                            ctx.strokeStyle = '#00e676';
+                            ctx.lineWidth = 4;
+                            ctx.stroke();
+                            ctx.restore();
+
+                            ctx.fillStyle = '#00e676';
+                            ctx.font = 'bold 12px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(`救援中... ${Math.round(pct * 100)}%`, posX, posY - 56);
+                        } else {
+                            ctx.fillStyle = '#ff3333';
+                            ctx.font = 'bold 12px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(isMe ? 'YOU (倒地等待救援)' : '隊友倒地 (靠近2秒救援)', posX, posY - PLAYER_SIZE / 2 - 6);
+                        }
+                    } else {
+                        if (clientDeathTimes[item.id]) delete clientDeathTimes[item.id];
+
+                        let targetImg = playerFrontImg;
+                        if (Math.abs(p.dirX) >= Math.abs(p.dirY) && p.dirX !== 0) {
+                            targetImg = playerRightImg;
+                        } else {
+                            targetImg = (p.dirY < 0) ? playerBackImg : playerFrontImg;
+                        }
+
+                        ctx.save();
+                        ctx.translate(posX, posY);
+                        if (flipX) ctx.scale(-1, 1);
+                        if (targetImg.complete && targetImg.naturalWidth !== 0) {
+                            ctx.drawImage(targetImg, -PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE);
+                        }
+                        ctx.restore();
+
+                        const barWidth = 40, barHeight = 6;
+                        const barX = posX - barWidth / 2, barY = posY - PLAYER_SIZE / 2 - 14;
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
+                        ctx.fillStyle = 'red'; ctx.fillRect(barX, barY, barWidth, barHeight);
+                        ctx.fillStyle = '#00ff00'; ctx.fillRect(barX, barY, barWidth * (p.hp / 100), barHeight);
+                        ctx.fillStyle = isMe ? '#00e5ff' : '#ffa000';
+                        ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+                        ctx.fillText(isMe ? (isDebugMode ? 'YOU (DEBUG)' : 'YOU') : 'TEAM', posX, barY - 4);
+                    }
+                } 
+                // B. 畫油桶
+                else if (item.type === 'barrel') {
+                    const br = item.data;
+                    drawGroundedShadow(posX, posY + 2, 24, 10);
+
+                    if (barrelImg.complete && barrelImg.naturalWidth !== 0) {
+                        ctx.drawImage(barrelImg, posX - 28, posY - 32, 56, 64);
+                    } else {
+                        drawVectorBarrel(posX, posY, br.hp);
+                    }
+                }
+                // 🌟 C. 畫手榴彈（支援 grenade.png 圖片與備援繪製）
+                else if (item.type === 'grenade') {
+                    drawGrenadeEntity(item.data, nowMs);
+                }
+                // D. 畫活著的殭屍與 BOSS
+                else if (item.type === 'zombie') {
+                    const z = item.data;
+
+                    if (z.isBoss) {
+                        drawGroundedShadow(posX, posY, 24, 10);
+
+                        let currentBossImg = bossFrontImg;
+                        const isAttacking = z.isAttacking;
+                        const isMoving = (Math.abs(z.vx || 0) > 0.05 || Math.abs(z.vy || 0) > 0.05);
+                        const dir = z.walkDir || 'down';
+
+                        if (isAttacking) {
+                            const frameIdx = (typeof z.attackFrame === 'number') ? z.attackFrame : 0;
+                            const idx5 = Math.min(4, Math.max(0, frameIdx));
+                            const idx7 = Math.min(6, Math.max(0, frameIdx));
+
+                            if (z.attackDir === 'shoot_side' && bossShootRightImgs.length > 0) {
+                                currentBossImg = bossShootRightImgs[idx7];
+                            } else if (z.attackDir === 'shoot_down' && bossShootDownImgs.length > 0) {
+                                currentBossImg = bossShootDownImgs[idx5];
+                            } else if ((z.attackDir === 'shoot_up' || z.attackDir === 'up')) {
+                                const shootImg = bossShootUpImgs[idx5];
+                                const attackImg = bossAttackUpImgs[idx5];
+                                if (shootImg && shootImg.complete && shootImg.naturalWidth !== 0) {
+                                    currentBossImg = shootImg;
+                                } else if (attackImg && attackImg.complete && attackImg.naturalWidth !== 0) {
+                                    currentBossImg = attackImg;
+                                } else {
+                                    currentBossImg = bossFrontImg;
+                                }
+                            } else {
+                                currentBossImg = bossFrontImg;
+                            }
+                        } else {
+                            if (dir === 'side') {
+                                if (isMoving) {
+                                    const frameIdx = Math.floor(nowMs / BOSS_WALK_INTERVAL) % 6;
+                                    currentBossImg = bossWalkRightImgs[frameIdx];
+                                } else {
+                                    currentBossImg = bossWalkRightImgs[0] || bossFrontImg;
+                                }
+                            } else if (dir === 'up') {
+                                if (isMoving) {
+                                    const frameIdx = Math.floor(nowMs / BOSS_WALK_INTERVAL) % 3;
+                                    currentBossImg = bossWalkUpImgs[frameIdx];
+                                } else {
+                                    currentBossImg = bossWalkUpImgs[0] || bossFrontImg;
+                                }
+                            } else {
+                                if (isMoving) {
+                                    const frameIdx = Math.floor(nowMs / BOSS_WALK_INTERVAL) % 3;
+                                    currentBossImg = bossWalkDownImgs[frameIdx];
+                                } else {
+                                    currentBossImg = bossFrontImg;
+                                }
+                            }
+                        }
+
+                        ctx.save();
+                        ctx.translate(posX, posY);
+                        if (z.facingLeft) ctx.scale(-1, 1);
+
+                        if (currentBossImg && currentBossImg.complete && currentBossImg.naturalWidth !== 0) {
+                            const aspect = currentBossImg.naturalWidth / currentBossImg.naturalHeight;
+                            const bDrawHeight = BOSS_SIZE;
+                            const bDrawWidth = bDrawHeight * aspect;
+                            ctx.drawImage(currentBossImg, -bDrawWidth / 2, -bDrawHeight / 2, bDrawWidth, bDrawHeight);
+                        } else {
+                            ctx.fillStyle = '#d50000';
+                            ctx.fillRect(-BOSS_SIZE / 2, -BOSS_SIZE / 2, BOSS_SIZE, BOSS_SIZE);
+                        }
+                        ctx.restore();
+
+                        const bossBarWidth = 42, bossBarHeight = 5;
+                        const bossBarX = posX - bossBarWidth / 2, bossBarY = posY - BOSS_SIZE / 2 - 12;
+                        const curHp = (z._clientHp !== undefined) ? Math.max(0, z._clientHp) : z.hp;
+                        const maxHp = z.maxHp || 9;
+
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                        ctx.fillRect(bossBarX - 1, bossBarY - 1, bossBarWidth + 2, bossBarHeight + 2);
+                        ctx.fillStyle = '#b71c1c';
+                        ctx.fillRect(bossBarX, bossBarY, bossBarWidth, bossBarHeight);
+                        ctx.fillStyle = '#ff1744';
+                        ctx.fillRect(bossBarX, bossBarY, bossBarWidth * (curHp / maxHp), bossBarHeight);
+
+                        ctx.fillStyle = '#ff5252';
+                        ctx.font = 'bold 11px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(`BOSS (${curHp})`, posX, bossBarY - 4);
+                    } else {
+                        const isAttacking = z.isAttacking;
+                        let baseSize = isAttacking ? ZOMBIE_SIZE * 1.15 : ZOMBIE_SIZE;
+
+                        drawGroundedShadow(posX, posY, 19, 8);
+
+                        if (isAttacking) {
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.ellipse(posX, posY + 16, 22, 9, 0, 0, Math.PI * 2);
+                            ctx.strokeStyle = 'rgba(255, 30, 30, 0.7)'; ctx.lineWidth = 2.5; ctx.stroke();
+                            ctx.restore();
+                        }
+
+                        let targetZombieImg = null;
+                        let isSideWalk = false;
+
+                        if (isAttacking) {
+                            const frameIdx = (typeof z.attackFrame === 'number') ? z.attackFrame : 0;
+                            if (z.attackDir === 'up') targetZombieImg = zombieAttackUpImgs[frameIdx];
+                            else if (z.attackDir === 'down') targetZombieImg = zombieAttackDownImgs[frameIdx];
+                            else targetZombieImg = zombieAttackImgs[frameIdx];
+                        } else {
+                            const frameOffset = item.idx * 180;
+                            const isMoving = (Math.abs(z.vx || 0) > 0.05 || Math.abs(z.vy || 0) > 0.05);
+                            const dir = z.walkDir || ((Math.abs(z.vx) > 0.1) ? 'side' : (z.vy < -0.1 ? 'up' : 'down'));
+
+                            if (dir === 'side') {
+                                isSideWalk = true;
+                                if (isMoving) {
+                                    const frameIndex = Math.floor((nowMs + frameOffset) / ZOMBIE_WALK_INTERVAL) % 4;
+                                    targetZombieImg = zombieWalkRightImgs[frameIndex];
+                                } else {
+                                    targetZombieImg = zombieWalkRightImgs[0];
+                                }
+                            } else if (dir === 'up') {
+                                if (isMoving) {
+                                    const frameIndex = Math.floor((nowMs + frameOffset) / ZOMBIE_WALK_INTERVAL) % 6;
+                                    targetZombieImg = zombieWalkUpImgs[frameIndex];
+                                } else {
+                                    targetZombieImg = zombieWalkUpImgs[0];
+                                }
+                            } else {
+                                if (isMoving) {
+                                    const frameIndex = Math.floor((nowMs + frameOffset) / ZOMBIE_WALK_INTERVAL) % 6;
+                                    targetZombieImg = zombieWalkImgs[frameIndex];
+                                } else {
+                                    targetZombieImg = zombieWalkImgs[0];
+                                }
+                            }
+                        }
+
+                        let drawHeight = baseSize;
+                        let drawWidth = baseSize * (isSideWalk ? ZOMBIE_SIDE_WIDTH_RATIO : ZOMBIE_WIDTH_SCALE);
+
+                        ctx.save();
+                        ctx.translate(posX, posY);
+                        if (z.facingLeft) ctx.scale(-1, 1);
+
+                        if (targetZombieImg && targetZombieImg.complete && targetZombieImg.naturalWidth !== 0) {
+                            ctx.drawImage(targetZombieImg, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                        } else if (fallbackZombieImg.complete) {
+                            ctx.drawImage(fallbackZombieImg, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                        }
+                        ctx.restore();
+
+                        const currentDisplayHp = (z._clientHp !== undefined) ? Math.max(0, z._clientHp) : z.hp;
+                        const zBarWidth = 28, zBarHeight = 4;
+                        const zBarX = posX - zBarWidth / 2, zBarY = posY - drawHeight / 2 - 8;
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; ctx.fillRect(zBarX - 1, zBarY - 1, zBarWidth + 2, zBarHeight + 2);
+                        ctx.fillStyle = '#ff2222'; ctx.fillRect(zBarX, zBarY, zBarWidth, zBarHeight);
+                        ctx.fillStyle = '#ffb300'; ctx.fillRect(zBarX, zBarY, zBarWidth * (currentDisplayHp / 3), zBarHeight);
+                    }
+                } 
+                // E. 畫倒地殭屍與倒地 BOSS
+                else if (item.type === 'deadZombie') {
+                    const dz = item.data;
+                    const elapsed = nowMs - dz.startTime;
+
+                    if (dz.isBoss) {
+                        const frameIdx = Math.floor(elapsed / BOSS_DOWN_INTERVAL);
+
+                        if (frameIdx < 6) {
+                            const img = bossDownImgs[frameIdx];
+                            ctx.save();
+                            ctx.translate(posX, posY);
+                            if (dz.facingLeft) ctx.scale(-1, 1);
+                            if (img && img.complete && img.naturalWidth !== 0) {
+                                const aspect = img.naturalWidth / img.naturalHeight;
+                                const bDrawHeight = BOSS_SIZE;
+                                const bDrawWidth = bDrawHeight * aspect;
+                                ctx.drawImage(img, -bDrawWidth / 2, -bDrawHeight / 2, bDrawWidth, bDrawHeight);
+                            }
+                            ctx.restore();
+                        } else {
+                            const fadeElapsed = elapsed - (6 * BOSS_DOWN_INTERVAL);
+                            const fadeDuration = 800;
+                            if (fadeElapsed < fadeDuration) {
+                                const alpha = 1 - (fadeElapsed / fadeDuration);
+                                const img = bossDownImgs[5];
+                                ctx.save();
+                                ctx.globalAlpha = Math.max(0, alpha);
+                                ctx.translate(posX, posY);
+                                if (dz.facingLeft) ctx.scale(-1, 1);
+                                if (img && img.complete && img.naturalWidth !== 0) {
+                                    const aspect = img.naturalWidth / img.naturalHeight;
+                                    const bDrawHeight = BOSS_SIZE;
+                                    const bDrawWidth = bDrawHeight * aspect;
+                                    ctx.drawImage(img, -bDrawWidth / 2, -bDrawHeight / 2, bDrawWidth, bDrawHeight);
+                                }
+                                ctx.restore();
+                            } else {
+                                const remIdx = deadZombies.indexOf(dz);
+                                if (remIdx !== -1) deadZombies.splice(remIdx, 1);
+                            }
+                        }
+                    } else {
+                        const frameIdx = Math.floor(elapsed / ZOMBIE_DOWN_INTERVAL);
+                        let drawHeight = ZOMBIE_SIZE;
+                        let drawWidth = ZOMBIE_SIZE * (dz.isSideWalk ? ZOMBIE_SIDE_WIDTH_RATIO : ZOMBIE_WIDTH_SCALE);
+
+                        if (frameIdx < 5) {
+                            const img = zombieDownImgs[frameIdx];
+                            ctx.save();
+                            ctx.translate(posX, posY);
+                            if (dz.facingLeft) ctx.scale(-1, 1);
+                            if (img && img.complete && img.naturalWidth !== 0) {
+                                ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                            } else if (fallbackZombieImg.complete) {
+                                ctx.drawImage(fallbackZombieImg, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                            }
+                            ctx.restore();
+                        } else {
+                            const fadeElapsed = elapsed - (5 * ZOMBIE_DOWN_INTERVAL);
+                            const fadeDuration = 600;
+                            if (fadeElapsed < fadeDuration) {
+                                const alpha = 1 - (fadeElapsed / fadeDuration);
+                                const img = zombieDownImgs[4];
+                                ctx.save();
+                                ctx.globalAlpha = Math.max(0, alpha);
+                                ctx.translate(posX, posY);
+                                if (dz.facingLeft) ctx.scale(-1, 1);
+                                if (img && img.complete && img.naturalWidth !== 0) {
+                                    ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+                                }
+                                ctx.restore();
+                            } else {
+                                const remIdx = deadZombies.indexOf(dz);
+                                if (remIdx !== -1) deadZombies.splice(remIdx, 1);
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 5. 爆炸衝擊波
+            const perfNow = performance.now();
+            for (let i = activeExplosions.length - 1; i >= 0; i--) {
+                const exp = activeExplosions[i];
+                const progress = (perfNow - exp.startTime) / exp.duration;
+
+                if (progress >= 1.0) {
+                    activeExplosions.splice(i, 1);
+                    continue;
+                }
+
+                const currentR = exp.maxRadius * Math.sin(progress * Math.PI * 0.5);
+                const alpha = Math.max(0, 1 - progress);
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(exp.x, exp.y, currentR, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 60, 0, ${alpha * 0.45})`;
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(exp.x, exp.y, currentR * 0.65, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 230, 0, ${alpha * 0.65})`;
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(exp.x, exp.y, currentR * 0.35, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.85})`;
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // 6. 碰撞輔助綠框
+            if (showDebugWalls && clientMapWalls) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 255, 120, 0.25)';
+                ctx.strokeStyle = '#00ff77';
+                ctx.lineWidth = 1.5;
+
+                clientMapWalls.forEach(w => {
+                    ctx.beginPath();
+                    if (w.points && w.points.length >= 3) {
+                        ctx.moveTo(w.points[0].x, w.points[0].y);
+                        for (let i = 1; i < w.points.length; i++) ctx.lineTo(w.points[i].x, w.points[i].y);
+                        ctx.closePath();
+                    } else if (w.width) {
+                        ctx.rect(w.x, w.y, w.width, w.height);
+                    }
+                    ctx.fill();
+                    ctx.stroke();
+                });
+                ctx.restore();
+            }
+        }
+
+        requestAnimationFrame(gameLoop);
+
+        document.addEventListener('keydown', (event) => {
+            const key = event.key.toLowerCase(); 
+            keysPressed[key] = true;
+
+            if (event.key === 'F2') {
+                showDebugWalls = !showDebugWalls;
+                updateStatusText();
+            }
+            if (event.key === 'F3') {
+                toggleDebugMode();
+            }
+
+            // Shift + 1~4 自由跳關測試
+            if (event.shiftKey && (event.key === '1' || event.key === '!')) {
+                adminSetLevel(1);
+            } else if (event.shiftKey && (event.key === '2' || event.key === '@')) {
+                adminSetLevel(2);
+            } else if (event.shiftKey && (event.key === '3' || event.key === '#')) {
+                adminSetLevel(3);
+            } else if (event.shiftKey && (event.key === '4' || event.key === '$')) {
+                adminSetLevel(4);
+            }
+
+            if (event.key === ',' || event.code === 'Comma') {
+                switchWeapon();
+            }
+
+            // 🌟 單次按下 G 投擲手榴彈（忽略長按鍵盤連發 repeat）
+            if (event.key === 'g' || event.key === 'G') {
+                if (!event.repeat) {
+                    throwGrenadeAction();
+                }
+            }
+
+            // 🌟 空白鍵：手榴彈狀態下單次投擲；槍枝則走射擊邏輯
+            if (event.key === ' ' || event.code === 'Space') { 
+                event.preventDefault(); 
+                keysPressed[' '] = true; 
+                if (currentWeaponKey === 'grenade') {
+                    if (!event.repeat) {
+                        throwGrenadeAction();
+                    }
+                } else {
+                    tryShoot(); 
+                }
+            }
+
+            syncPlayerInput();
+        });
+
+        document.addEventListener('keyup', (event) => {
+            const key = event.key.toLowerCase(); 
+            keysPressed[key] = false;
+            if (event.key === ' ' || event.code === 'Space') { 
+                event.preventDefault(); 
+                keysPressed[' '] = false; 
+            }
+
+            syncPlayerInput();
+        });
+
+        window.addEventListener('blur', () => { 
+            for (let k in keysPressed) keysPressed[k] = false; 
+            syncPlayerInput();
+        });
+
+        updateWeaponHud();
+    </script>
+</body>
+</html>
