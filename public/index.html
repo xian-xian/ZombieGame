@@ -165,7 +165,7 @@
     <p id="controls">🎮 操作：[W,A,S,D] 移動 | [空白鍵] 開火 | [ , ] 換槍 | [G] 單發丟手榴彈(冷卻1.2s) | [Shift+1~4] 隨選跳關</p>
 
     <script>
-        const socket = io('http://100.106.122.112:3000', { transports: ['websocket'] });
+        const socket = io();
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d', { alpha: false });
         const infoMsg = document.getElementById('info');
